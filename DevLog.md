@@ -140,12 +140,28 @@ result).
 - Any tests
 - Frontend
 
+## Milestone: app runs successfully
+`uvicorn backend.main:app --reload` starts cleanly and
+`curl http://localhost:8000/health` returns `{"status":"ok"}`. Confirms
+config loading, database setup, and routing all work together correctly.
+
+Setup snags along the way, worth remembering:
+- `requirements.txt` needs to be an actual saved file, not just content
+  shown in chat — install with `pip install -r requirements.txt` inside an
+  **activated** virtual environment (prompt should show `(venv)`).
+- Ended up with two virtual environments (`venv` and an accidental `.venv`)
+  from an earlier attempt. Deleting `.venv` through VS Code's file explorer
+  failed with `ENOTEMPTY` — a file watcher or terminal likely still had a
+  handle open inside it. Fixed by deleting from the terminal directly
+  (`rm -rf .venv`), which doesn't have that race condition. Only `venv/` is
+  kept going forward.
+- `backend/__pycache__/` appeared automatically the first time the app ran
+  — this is normal, Python-managed, and safe to delete any time
+  (`rm -rf backend/__pycache__`). Will be excluded via `.gitignore` once
+  that file exists so it's never committed.
+
 ## Next immediate step
-Run the app for the first time:
-```bash
-uvicorn backend.main:app --reload
-curl http://localhost:8000/health
-```
-Confirm `{"status":"ok"}` comes back and that the SQLite file
-(`data/persona_hub.db`) gets created with a `personas` table. Then move to
-building out full CRUD for personas.
+Build out full CRUD for personas: `backend/schemas/persona.py` already
+exists (step 5); next is `backend/services/persona_service.py` (the
+orchestration logic) and `backend/routers/personas.py` (the actual
+endpoints), then wire the router into `main.py`.
