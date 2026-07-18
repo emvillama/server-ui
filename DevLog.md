@@ -1,23 +1,26 @@
 # Persona AI Hub — Backend Development Log
 
-Status as of this document: **Phase 1 (Backend foundation), steps 1–6
-complete.** The app runs, has a working `/health` endpoint, and has a
-`personas` table defined and wired up to auto-create on startup — but no
-CRUD endpoints or chat endpoint yet. Those are next.
+Status as of this document: **Phase 1 (Backend foundation) functionally
+complete.** Full persona CRUD and a working `/chat` endpoint have been
+tested end-to-end against Ollama running on the server. Not yet built:
+the systemd unit for persistent deployment, tests, and the frontend.
 
 Development is happening on a personal computer, not the AMD server that
 hosts Ollama. The backend reaches Ollama over the LAN at
-`192.168.1.240:11434`, confirmed working via `curl .../api/tags`. When the
-backend eventually moves to the server itself, `.env` will need
-`OLLAMA_HOST` updated to `localhost`, and the SQLite database will start
-fresh there (personas created during dev won't carry over automatically).
+`192.168.1.240:11434`. When the backend eventually moves to the server
+itself, `.env` will need `OLLAMA_HOST` updated to `localhost`, and the
+SQLite database will start fresh there (personas created during dev won't
+carry over automatically).
 
 ## Project structure so far
 
 ```
-persona-ai-hub/
-├── .env                        # real config, gitignored (not created yet: .gitignore)
-├── .env.example                # config template, committed
+server-ui/
+├── .env                         # real config, gitignored
+├── .env.example                 # config template, committed
+├── .gitignore
+├── DevLog.md
+├── README.md
 ├── requirements.txt
 ├── backend/
 │   ├── __init__.py
@@ -29,18 +32,26 @@ persona-ai-hub/
 │   │   └── persona.py
 │   ├── schemas/
 │   │   ├── __init__.py
+│   │   ├── chat.py
 │   │   └── persona.py
 │   ├── routers/
 │   │   ├── __init__.py
-│   │   └── health.py
-│   ├── services/               # empty so far — Phase step 7–8
-│   │   └── __init__.py
-│   └── deploy/                 # empty so far — systemd unit comes later
-├── frontend/                   # empty so far
-├── data/
-│   └── .gitkeep                # SQLite file will land here, gitignored
-└── tests/                      # empty so far
+│   │   ├── chat.py
+│   │   ├── health.py
+│   │   └── personas.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── ollama_client.py
+│   │   └── persona_service.py
+│   └── deploy/                  # empty so far — systemd unit not built yet
+├── frontend/                    # empty so far
+├── data/                        # SQLite file lands here, gitignored
+└── tests/                       # empty so far — no tests written yet
 ```
+
+Note: every package folder under `backend/` also grows a `__pycache__/`
+during normal use (Python-generated, gitignored, safe to ignore/delete
+anytime — not listed above since it's not source code).
 
 ## File-by-file summary
 
@@ -110,10 +121,12 @@ the API contract and the storage layout are allowed to diverge.
   SQLAlchemy `Persona` row rather than a plain dict.
 
 ### `backend/routers/health.py`
-One endpoint, `GET /health`, currently returning a static
-`{"status": "ok"}`. Deliberately minimal for now — no Ollama reachability
-check yet, since that depends on the Ollama client file that doesn't exist
-yet (upcoming step). Will be upgraded once that's built.
+`GET /health`. Now checks Ollama reachability via
+`ollama_client.is_reachable()` (added in the chat-endpoint milestone below)
+and returns `{"status": "ok", "ollama_reachable": true/false}`. Useful as a
+first check whenever something seems broken — if this shows `false`, the
+issue is network/server-side, not this codebase (see the chat-endpoint
+milestone notes for a real example of this).
 
 ### `backend/main.py`
 The actual FastAPI application entrypoint — what `uvicorn` runs. Defines a
@@ -130,15 +143,6 @@ calling Ollama's API (`ollama_client.py`) and the persona business logic
 (`persona_service.py`) — keeping that logic out of the router files, which
 should stay thin (parse request → call a service function → return
 result).
-
-## Not built yet
-- `backend/routers/personas.py` + persona CRUD service logic
-- `backend/services/ollama_client.py` (the actual Ollama HTTP calls)
-- `backend/routers/chat.py` + chat orchestration
-- `.gitignore`
-- `backend/deploy/persona-ai-hub.service` (systemd unit)
-- Any tests
-- Frontend
 
 ## Milestone: app runs successfully
 `uvicorn backend.main:app --reload` starts cleanly and
@@ -157,11 +161,121 @@ Setup snags along the way, worth remembering:
   kept going forward.
 - `backend/__pycache__/` appeared automatically the first time the app ran
   — this is normal, Python-managed, and safe to delete any time
-  (`rm -rf backend/__pycache__`). Will be excluded via `.gitignore` once
-  that file exists so it's never committed.
+  (`rm -rf backend/__pycache__`). Now excluded via `.gitignore`, along with
+  `venv/`, `.venv/`, `.env`, and the SQLite db file, so none of that ever
+  gets committed.
+
+## Milestone: persona CRUD working
+`backend/services/persona_service.py` and `backend/routers/personas.py`
+built and wired into `main.py`. Tested via Swagger UI at `/docs`:
+`POST /personas` with a minimal body (just `name` + `system_prompt`)
+returned `201` with the full persona object, including auto-generated
+`id` and timestamps. First real persona created: "General Chatbot".
+
+### `backend/services/persona_service.py`
+The actual database logic for personas: `list_personas`, `get_persona`,
+`create_persona`, `update_persona`, `delete_persona`. Deliberately knows
+nothing about HTTP — raises plain Python exceptions
+(`PersonaNotFoundError`, `PersonaNameConflictError`) rather than dealing in
+status codes, so this logic isn't tied to being used behind a web API. Uses
+`.model_dump(exclude_none=True)` when converting the `OllamaParams` schema
+to a plain dict for storage, so unset fields don't get stored as explicit
+`null`s. Calls `db.commit()` then `db.refresh()` after writes so the
+returned object reflects database-generated values like timestamps.
+
+### `backend/routers/personas.py`
+The actual `/personas` endpoints (`GET`, `POST`, `GET /{id}`, `PUT /{id}`,
+`DELETE /{id}`). Deliberately thin — each function calls the matching
+service function and translates its exceptions into HTTP status codes
+(404 for not found, 409 for name conflicts). Uses `Depends(get_db)` to get
+a database session per request, and `response_model=PersonaOut` so
+responses are validated against the schema from step 5 before being sent.
+
+## Milestone: chat endpoint built, health check confirms Ollama reachable
+Built `backend/schemas/chat.py` (request/response shapes),
+`backend/services/ollama_client.py` (the only file that calls Ollama's
+HTTP API directly), added `run_chat()` to `persona_service.py` (assembles
+persona system prompt + history + new message, calls Ollama, returns the
+reply), and `backend/routers/chat.py` (`POST /chat`). Also upgraded
+`/health` to actually check Ollama reachability via
+`ollama_client.is_reachable()` rather than just returning a static OK.
+
+`/health` briefly showed `"ollama_reachable": false` after this change —
+turned out to simply be the server (192.168.1.240) being powered off at
+the time, not a bug. Good reminder for this dev setup specifically: since
+the backend runs on a personal computer separate from the AI server,
+`ollama_reachable: false` should prompt checking "is the server actually
+on" before assuming a config/network problem.
+
+### `backend/schemas/chat.py`
+`ChatMessage` (role + content), `ChatRequest` (persona_id, message, and
+optional `history` of prior turns), `ChatResponse` (persona_id, reply,
+model used). `history` exists because Ollama is stateless — the full
+conversation has to be resent every call; nothing persists it server-side
+yet.
+
+### `backend/services/ollama_client.py`
+The only file allowed to make HTTP calls to Ollama. `chat()` posts to
+`/api/chat` with `stream: False` (full reply at once, not token-by-token)
+and returns just the reply text. `is_reachable()` does a lightweight check
+against `/api/tags`, used by `/health`. Both wrap failures in a single
+custom `OllamaError` exception, covering unreachable server, HTTP errors
+from Ollama, and unexpected response shapes.
+
+### `run_chat()` in `backend/services/persona_service.py`
+Pulls a persona from the DB, prepends its `system_prompt` as the first
+message (only if one is set), appends conversation history and the new
+user message, then calls `ollama_client.chat()` using the persona's
+`params` as Ollama's generation options and `persona.model or
+settings.default_model` as the model. This is the function that makes
+per-persona tuning (system prompt, temperature, model override) actually
+take effect.
+
+### `backend/routers/chat.py`
+`POST /chat`. Thin, same pattern as the personas router — calls
+`run_chat()`, translates `PersonaNotFoundError` to `404` and `OllamaError`
+to `502` (upstream failure, not this server's fault).
+
+## Not built yet
+- `backend/deploy/persona-ai-hub.service` (systemd unit)
+- Any tests
+- Frontend
 
 ## Next immediate step
-Build out full CRUD for personas: `backend/schemas/persona.py` already
-exists (step 5); next is `backend/services/persona_service.py` (the
-orchestration logic) and `backend/routers/personas.py` (the actual
-endpoints), then wire the router into `main.py`.
+Test a full chat round-trip via `/docs` — `POST /chat` with a real
+`persona_id` and message, confirm an actual Ollama-generated reply comes
+back. Then move to the systemd unit for running this as a service on the
+server.
+
+## Milestone: full chat round-trip confirmed working end-to-end
+`POST /chat` successfully returned a real Ollama-generated reply. First
+attempt hit a `502` — persona's `model` field had been saved as the
+literal string `"string"` (Swagger's unedited placeholder text in the
+request body), so Ollama correctly rejected it with
+`model 'string' not found`. Fixed by deleting and recreating the persona
+with that field either omitted entirely or set to a real model name.
+
+Noted gap for later, not urgent: `PUT /personas/{id}` currently can't
+distinguish "field omitted, don't touch it" from "field explicitly set to
+null, clear it" — both arrive as `None`. Not a problem yet since
+delete-and-recreate works fine for testing, but worth a real fix if
+editing personas becomes a frequent workflow.
+
+This confirms the full path: persona config in SQLite → assembled into a
+system prompt + message list → sent to Ollama on the server (192.168.1.240)
+over the LAN → real model reply returned through the API. Core of Phase 1
+is functionally complete.
+
+## Not built yet
+- `backend/deploy/persona-ai-hub.service` (systemd unit)
+- Any tests
+- Frontend
+
+## Next immediate step
+Build the systemd unit file (`backend/deploy/persona-ai-hub.service`) so
+the backend can run persistently — though since development is happening
+on a personal computer and the actual server deployment is a future step,
+this may be worth deferring until closer to that point. Alternatively,
+next could be: basic tests, or seeding the remaining four personas from
+the roadmap (Coding Assistant, D&D Game Master, Recipe Recommender, Second
+Brain/Study Assistant).
