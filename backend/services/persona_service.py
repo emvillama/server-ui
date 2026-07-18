@@ -6,8 +6,11 @@ this file.
 
 from sqlalchemy.orm import Session
 
+from backend.config import settings
 from backend.models.persona import Persona
 from backend.schemas.persona import PersonaCreate, PersonaUpdate
+from backend.schemas.chat import ChatMessage
+from backend.services import ollama_client
 
 
 class PersonaNotFoundError(Exception):
@@ -74,3 +77,23 @@ def delete_persona(db: Session, persona_id: int) -> None:
     persona = get_persona(db, persona_id)
     db.delete(persona)
     db.commit()
+
+
+async def run_chat(
+    db: Session, persona_id: int, message: str, history: list[ChatMessage]
+) -> tuple[str, str]:
+    """
+    Assembles a persona's system prompt + conversation history + new
+    message into an Ollama /api/chat call. Returns (reply_text, model_used).
+    """
+    persona = get_persona(db, persona_id)
+
+    messages: list[dict] = []
+    if persona.system_prompt:
+        messages.append({"role": "system", "content": persona.system_prompt})
+    messages.extend({"role": m.role, "content": m.content} for m in history)
+    messages.append({"role": "user", "content": message})
+
+    model = persona.model or settings.default_model
+    reply = await ollama_client.chat(model=model, messages=messages, options=persona.params)
+    return reply, model
