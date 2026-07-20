@@ -268,14 +268,38 @@ is functionally complete.
 
 ## Not built yet
 - `backend/deploy/persona-ai-hub.service` (systemd unit)
-- Any tests
 - Frontend
 
+## Milestone: PUT null-vs-omitted bug fixed, test suite added
+Fixed the gap noted above: `update_persona()` now uses Pydantic's
+`data.model_fields_set` to tell "field omitted from the request" apart
+from "field explicitly sent as `null`" — previously both looked identical
+(`None`) once the request body was parsed.
+
+- `model` is the one genuinely nullable column, so explicitly sending
+  `"model": null` now correctly clears a persona's model override back to
+  `settings.default_model`. Omitting `model` from the request leaves it
+  untouched, as it always should have.
+- `name`, `system_prompt`, `params`, and `capabilities` are non-nullable
+  columns. Explicitly sending `null` for any of those now raises a new
+  `PersonaValidationError`, mapped to HTTP `422` in the router — a clear
+  error instead of the field being silently left alone.
+
+Added a full pytest suite: `tests/conftest.py` (isolated temp-SQLite
+database per test via a `get_db` dependency override, plus a reusable
+`persona` fixture), `tests/test_health.py`, `tests/test_personas.py`
+(CRUD + all four PUT edge cases above, explicitly), and
+`tests/test_chat.py` (Ollama calls mocked via `monkeypatch`, so these
+don't depend on the server being reachable — includes a test asserting
+the persona's system prompt is actually the first message sent to
+Ollama). `pytest.ini` added at the project root (`pythonpath = .`) so
+tests can import `backend` correctly.
+
+All 16 tests passing.
+
 ## Next immediate step
-Build the systemd unit file (`backend/deploy/persona-ai-hub.service`) so
-the backend can run persistently — though since development is happening
-on a personal computer and the actual server deployment is a future step,
-this may be worth deferring until closer to that point. Alternatively,
-next could be: basic tests, or seeding the remaining four personas from
-the roadmap (Coding Assistant, D&D Game Master, Recipe Recommender, Second
-Brain/Study Assistant).
+Either the systemd unit (`backend/deploy/persona-ai-hub.service`) — though
+that may be worth deferring until closer to actual server deployment,
+since development is still happening on a personal computer — or seeding
+the remaining four personas from the roadmap (Coding Assistant, D&D Game
+Master, Recipe Recommender, Second Brain/Study Assistant).
