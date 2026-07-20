@@ -1,9 +1,3 @@
-"""
-Business logic for personas. Routers stay thin (parse request, call a
-function here, return the result) -- all the actual database work lives in
-this file.
-"""
-
 from sqlalchemy.orm import Session
 
 from backend.config import settings
@@ -18,6 +12,10 @@ class PersonaNotFoundError(Exception):
 
 
 class PersonaNameConflictError(Exception):
+    pass
+
+
+class PersonaValidationError(Exception):
     pass
 
 
@@ -51,21 +49,46 @@ def create_persona(db: Session, data: PersonaCreate) -> Persona:
 
 
 def update_persona(db: Session, persona_id: int, data: PersonaUpdate) -> Persona:
+    """
+    PUT semantics: only fields actually present in the request body are
+    touched. `data.model_fields_set` tells "field omitted" apart from
+    "field explicitly sent as null" -- both would otherwise show up as
+    `None` on the `data` object and be indistinguishable.
+
+    `model` is the one field that's genuinely nullable in storage, so
+    explicitly sending `"model": null` clears a persona's model override
+    back to using the default. `name`, `system_prompt`, `params`, and
+    `capabilities` are non-nullable columns, so explicitly sending null
+    for those is a client error rather than silently ignored.
+    """
     persona = get_persona(db, persona_id)
+    provided = data.model_fields_set
 
-    if data.name is not None and data.name != persona.name:
-        existing = db.query(Persona).filter(Persona.name == data.name).first()
-        if existing is not None:
-            raise PersonaNameConflictError(f"Persona '{data.name}' already exists")
-        persona.name = data.name
+    if "name" in provided:
+        if data.name is None:
+            raise PersonaValidationError("name cannot be set to null")
+        if data.name != persona.name:
+            existing = db.query(Persona).filter(Persona.name == data.name).first()
+            if existing is not None:
+                raise PersonaNameConflictError(f"Persona '{data.name}' already exists")
+            persona.name = data.name
 
-    if data.system_prompt is not None:
+    if "system_prompt" in provided:
+        if data.system_prompt is None:
+            raise PersonaValidationError("system_prompt cannot be set to null")
         persona.system_prompt = data.system_prompt
-    if data.params is not None:
+
+    if "params" in provided:
+        if data.params is None:
+            raise PersonaValidationError("params cannot be set to null")
         persona.params = data.params.model_dump(exclude_none=True)
-    if data.capabilities is not None:
+
+    if "capabilities" in provided:
+        if data.capabilities is None:
+            raise PersonaValidationError("capabilities cannot be set to null")
         persona.capabilities = data.capabilities.model_dump()
-    if data.model is not None:
+
+    if "model" in provided:
         persona.model = data.model
 
     db.commit()
@@ -82,10 +105,6 @@ def delete_persona(db: Session, persona_id: int) -> None:
 async def run_chat(
     db: Session, persona_id: int, message: str, history: list[ChatMessage]
 ) -> tuple[str, str]:
-    """
-    Assembles a persona's system prompt + conversation history + new
-    message into an Ollama /api/chat call. Returns (reply_text, model_used).
-    """
     persona = get_persona(db, persona_id)
 
     messages: list[dict] = []

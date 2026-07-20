@@ -37,6 +37,8 @@ def update_persona(persona_id: int, data: PersonaUpdate, db: Session = Depends(g
         raise HTTPException(status_code=404, detail=str(exc))
     except svc.PersonaNameConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except svc.PersonaValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.delete("/{persona_id}", status_code=204)
