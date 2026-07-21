@@ -53,6 +53,36 @@ Note: every package folder under `backend/` also grows a `__pycache__/`
 during normal use (Python-generated, gitignored, safe to ignore/delete
 anytime — not listed above since it's not source code).
 
+## Request flow: POST /chat
+
+A full round-trip through every layer, for reference:
+
+1. **Client** sends `POST /chat` with `persona_id`, `message`, and optional
+   `history`.
+2. **`routers/chat.py`** parses the request into a `ChatRequest`, calls
+   `persona_service.run_chat()`, and is responsible only for translating
+   whatever comes back (or whatever exception is raised) into an HTTP
+   response.
+3. **`persona_service.run_chat()`** is the orchestrator:
+   - Calls `get_persona()` to pull the persona row from SQLite by id —
+     raises `PersonaNotFoundError` if it doesn't exist (→ `404` at the
+     router).
+   - Assembles the message list: the persona's `system_prompt` first (if
+     set), then `history`, then the new `message`.
+4. **`ollama_client.chat()`** takes that message list plus the persona's
+   `model` (or `settings.default_model` as fallback) and `params`, and
+   POSTs to Ollama's `/api/chat` over the LAN (`192.168.1.240:11434`) with
+   `stream: False`.
+5. **Ollama** generates the reply and returns it as a single JSON response.
+6. The reply text flows back up: `ollama_client.chat()` returns it to
+   `run_chat()`, which returns `(reply, model)` to the router, which wraps
+   it in a `ChatResponse` and sends it to the client.
+
+Failure modes are handled at the router boundary: `PersonaNotFoundError` →
+`404`, `OllamaError` (unreachable server, bad HTTP status, or unexpected
+response shape from Ollama) → `502`, since a failure at that stage is
+Ollama's fault, not this server's.
+
 ## File-by-file summary
 
 ### `.env` / `.env.example`
@@ -68,8 +98,9 @@ keeping for when that changes.
 Every Python package the project depends on: FastAPI (web framework),
 Uvicorn (the server that runs it), SQLAlchemy (ORM/database layer),
 Pydantic + pydantic-settings (data validation and config loading), httpx
-(will be used to call Ollama's API), python-dotenv (parses `.env`), pytest
-(testing, later).
+(calls Ollama's HTTP API, and powers FastAPI's `TestClient` in tests),
+python-dotenv (parses `.env`), pytest + pytest-asyncio (the test suite —
+see the PUT-fix milestone below).
 
 ### `backend/config.py`
 The *only* file that reads environment variables directly. Defines a
