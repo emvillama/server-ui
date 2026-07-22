@@ -269,8 +269,6 @@ to `502` (upstream failure, not this server's fault).
 
 ## Not built yet
 - `backend/deploy/persona-ai-hub.service` (systemd unit)
-- Any tests
-- Frontend
 
 ## Next immediate step
 Test a full chat round-trip via `/docs` — `POST /chat` with a real
