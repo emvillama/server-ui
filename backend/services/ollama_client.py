@@ -60,3 +60,32 @@ async def is_reachable() -> bool:
             return response.status_code == 200
     except httpx.RequestError:
         return False
+
+async def embed(model: str, text: str) -> list[float]:
+    """
+    Calls Ollama's /api/embeddings and returns the embedding vector for
+    a single piece of text.
+    """
+    payload = {
+        "model": model,
+        "prompt": text,
+    }
+
+    url = f"{settings.ollama_host}/api/embeddings"
+    try:
+        async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+    except httpx.RequestError as exc:
+        raise OllamaError(f"Could not reach Ollama at {url}: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        raise OllamaError(
+            f"Ollama returned an error ({exc.response.status_code}): "
+            f"{exc.response.text}"
+        ) from exc
+
+    data = response.json()
+    try:
+        return data["embedding"]
+    except (KeyError, TypeError) as exc:
+        raise OllamaError(f"Unexpected response shape from Ollama: {data}") from exc
