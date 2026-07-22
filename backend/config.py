@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     default_model: str = "llama3.1:8b"
+    embedding_model: str = "nomic-embed-text"
     db_path: str = "./data/persona_hub.db"
     ollama_timeout: float = 120.0
 

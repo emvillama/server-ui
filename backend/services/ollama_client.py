@@ -61,6 +61,7 @@ async def is_reachable() -> bool:
     except httpx.RequestError:
         return False
 
+
 async def embed(model: str, text: str) -> list[float]:
     """
     Calls Ollama's /api/embeddings and returns the embedding vector for
