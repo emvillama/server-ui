@@ -8,7 +8,7 @@ fine at personal scale, per the Phase 2 handoff notes.
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, Integer, String, Text, JSON, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from backend.database import Base
 
@@ -47,4 +47,8 @@ class Knowledge(Base):
 
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
-    persona = relationship("Persona", backref="knowledge_chunks")
+    # passive_deletes=True: when a Persona is deleted, let SQLite's
+    # ON DELETE CASCADE handle removing its knowledge rows, rather than
+    # SQLAlchemy's ORM trying to null out persona_id on loaded children
+    # first (which would violate the NOT NULL constraint on this column).
+    persona = relationship("Persona", backref=backref("knowledge_chunks", passive_deletes=True))
