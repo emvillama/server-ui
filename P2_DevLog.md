@@ -1,13 +1,15 @@
 # Persona AI Hub — Phase 2 Development Log (Knowledge / RAG)
 
-Status as of this document: **Phase 2 (Knowledge/RAG) just started.**
-Config updated, `embed()` added to the Ollama client, and the `knowledge`
-table modeled and registered. Not yet built: document ingestion/chunking,
-similarity search, or wiring retrieval into `/chat`.
+Status as of this document: **Document ingestion pipeline complete and
+tested.** Config, `embed()`, the `knowledge` table, chunking, and full
+document ingestion all work end-to-end, confirmed by a 27-test suite (17
+from Phase 1 + 10 new). Not yet built: similarity search, retrieval wired
+into `/chat`, or any HTTP endpoint to trigger ingestion from outside a
+test.
 
 This log picks up where `P1_DevLog.md` left off. See that file for
-project structure, request-flow diagrams, and Phase 1 file-by-file
-summaries — not repeated here.
+request-flow diagrams and Phase 1 file-by-file summaries — not repeated
+here.
 
 ## Context carried over from Phase 1
 
@@ -22,18 +24,19 @@ summaries — not repeated here.
   are used for flexible/evolving data.
 
 ## Project structure so far
+```
 server-ui/
 ├── .env                         # real config, gitignored
 ├── .env.example                 # config template, committed
 ├── .gitignore
 ├── P1_DevLog.md
-├── P2_DevLog.md                 # NEW — this file
+├── P2_DevLog.md                 # this file
 ├── README.md
 ├── requirements.txt
 ├── backend/
 │   ├── __init__.py
 │   ├── config.py                 # UPDATED — added embedding_model
-│   ├── database.py
+│   ├── database.py                # UPDATED — SQLite FK enforcement fix
 │   ├── main.py
 │   ├── models/
 │   │   ├── __init__.py            # UPDATED — registers Knowledge
@@ -51,7 +54,9 @@ server-ui/
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── ollama_client.py        # UPDATED — added embed()
-│   │   └── persona_service.py
+│   │   ├── persona_service.py
+│   │   ├── chunking.py              # NEW — chunk_text()
+│   │   └── knowledge_service.py     # NEW — ingest_document()
 │   └── deploy/                  # still empty — systemd unit not built yet
 ├── frontend/                    # still empty
 ├── data/                        # SQLite file lands here, gitignored
@@ -59,7 +64,10 @@ server-ui/
     ├── conftest.py
     ├── test_health.py
     ├── test_personas.py
-    └── test_chat.py
+    ├── test_chat.py
+    ├── test_chunking.py          # NEW
+    └── test_knowledge_service.py # NEW
+```
 
 ## Milestone: embedding model confirmed pulled on server
 
@@ -93,7 +101,7 @@ unreachable-server / bad-status / unexpected-response-shape failures.
 
 Takes a single string in, returns a single vector out — no batching.
 Ollama's `/api/embeddings` takes one `prompt` at a time, so this matches
-that; chunking logic (Phase 2, later) will call this once per chunk.
+that; chunking logic calls this once per chunk.
 
 ## Milestone: `knowledge` table modeled
 
@@ -116,11 +124,9 @@ handoff notes, which called out that these shouldn't be assumed):
   Python loop over rows for cosine similarity is fast enough; adding a
   vector-search extension now would be solving a scaling problem this
   project doesn't have.
-- **Chunking granularity deliberately deferred.** The table schema doesn't
-  care *how* a chunk was produced — it just needs a column for chunk text
-  and a chunk index. The fixed-size vs. paragraph-based decision gets made
-  when document ingestion is actually built (next milestone), likely by
-  testing against real notes rather than deciding in the abstract.
+- **Chunking granularity deliberately deferred** at this point — the
+  table schema doesn't care *how* a chunk was produced. (Decided in the
+  next milestone below.)
 
 Fields: `id`, `persona_id` (FK to `personas.id`, `ondelete="CASCADE"` —
 deleting a persona cleans up its knowledge chunks automatically),
@@ -132,8 +138,7 @@ retrieved), `embedding` (JSON list of floats), `created_at`.
 Also added `relationship("Persona", backref="knowledge_chunks")` — the
 first use of SQLAlchemy relationships in this codebase (Phase 1 only used
 raw columns). Gives `persona.knowledge_chunks` as a convenience accessor
-in Python, without hand-writing a filtered query every time. Flagged
-explicitly since it's a new pattern, not just a new file.
+in Python, without hand-writing a filtered query every time.
 
 **Not done:** a separate `documents` table (one row per source file,
 rather than `source_filename` repeated per chunk). Skipped for now as
@@ -152,16 +157,125 @@ from backend.models.knowledge import Knowledge
 Ensures the `knowledge` table gets created by `Base.metadata.create_all()`
 in `main.py`'s startup lifespan, same mechanism as Phase 1.
 
+## Milestone: chunking strategy chosen and built
+
+Discussed three options explicitly before implementing: fixed-size,
+paragraph-based, and fixed-size-with-sentence-boundary-awareness. Chose
+the third as a compromise — predictable chunk sizes like fixed-size, but
+avoids cutting mid-sentence, and (unlike paragraph-based) doesn't depend
+on how cleanly the source notes happen to be formatted.
+
+### `backend/services/chunking.py`
+`chunk_text(text, target_size=500, max_search=200)` — splits text into
+chunks near `target_size` characters, searching up to `max_search`
+characters past the target for a sentence-ending boundary (`. `, `? `,
+`! `) to cut on.
+
+**Bug caught during manual testing, not by the first round of automated
+tests:** ran `chunk_text()` against a realistic paragraph (not just
+uniform test sentences) and found the hard-cut fallback — used when no
+sentence boundary is found nearby — could cut a word in half (e.g. "...as
+it fo" / "rms the base..."). The original automated tests all passed
+despite this, because they only used short, uniform sentences that never
+exercised that fallback path. Fixed by changing the fallback to cut at
+the nearest word boundary (last space) instead of a hard character count,
+only falling back to a true hard cut if there's no space to find at all
+(one giant unbroken token). Re-verified against the same paragraph after
+the fix — no more mid-word cuts — and added a dedicated regression test
+(`test_fallback_never_cuts_a_word_in_half`) using punctuation-free text to
+lock in the fix.
+
+### `tests/test_chunking.py`
+6 tests: empty input, short input (single chunk), long input (multiple
+chunks), chunks ending on sentence boundaries, the word-boundary fallback
+fix, and content-preservation across reassembled chunks.
+
+## Milestone: document ingestion built and tested end-to-end
+
+### `backend/services/knowledge_service.py`
+`ingest_document(db, persona_id, source_filename, text)` — chunks the
+text via `chunk_text()`, embeds each chunk via `ollama_client.embed()`,
+stores one `Knowledge` row per chunk. Reuses `get_persona()` from
+`persona_service.py` so a missing persona raises the existing
+`PersonaNotFoundError`, handled by the router the same way `/chat`
+already does. Commits once after the full loop (not per-chunk), so a
+failure partway through an embedding pass rolls back the whole ingestion
+rather than leaving a half-embedded document in the database.
+
+**Two real bugs found while testing this, both in `database.py`, not in
+the ingestion logic itself:**
+
+1. **`ondelete="CASCADE"` was silently non-functional.** SQLite doesn't
+   enforce foreign keys by default, and nothing in `database.py` turned
+   that on. Deleting a persona with attached knowledge threw an
+   `IntegrityError` instead of cascading. Fixed by registering a
+   `PRAGMA foreign_keys=ON` event listener on SQLAlchemy's `Engine`
+   *class* (not a specific engine instance) — needed at the class level
+   specifically because `tests/conftest.py` builds its own separate
+   engine per test, independent of the app's main `engine` object, so an
+   instance-level listener wouldn't have covered it.
+
+2. **A second, subtler layer of the same bug**, at the ORM level: even
+   with the DB-level pragma on, SQLAlchemy's own unit-of-work will still
+   null out an already-loaded child collection itself, bypassing the
+   database's `ON DELETE CASCADE` entirely. Caught because an early
+   version of the cascade-delete test accessed `persona.knowledge_chunks`
+   right before deleting the persona. Fixed with `passive_deletes=True`
+   on the `Persona.knowledge_chunks` backref in `models/knowledge.py`.
+   Confirmed via a throwaway script that `passive_deletes=True` only
+   changes behavior for an *unloaded* collection — deliberately rewrote
+   the final test to match how `delete_persona()` is actually called from
+   the router (which never touches `knowledge_chunks` first), rather than
+   testing an edge case that doesn't occur in real usage.
+
+### `backend/database.py`
+Added the `PRAGMA foreign_keys=ON` event listener described above.
+Nothing else in this file changed from Phase 1.
+
+### `tests/test_knowledge_service.py`
+5 tests: ingestion creates the expected rows (with correct `chunk_index`
+and per-chunk embeddings), missing persona raises `PersonaNotFoundError`,
+a mid-ingestion `OllamaError` rolls back the whole batch (nothing
+partially committed), the `persona.knowledge_chunks` relationship works,
+and deleting a persona correctly cascades to its knowledge rows.
+
+## Milestone: full suite green — 27 tests passing
+
+Ran `pytest tests` against the real project — `27 passed`: the original
+17 from Phase 1 plus 6 new chunking tests and 5 new knowledge-service
+tests. Confirms the Phase 2 additions didn't regress anything from
+Phase 1.
+
+Two small snags hit just getting the new test file recognized at all,
+worth remembering:
+- `models/knowledge.py` initially raised `NameError: name 'backref' is
+  not defined` when actually run — the `passive_deletes` fix required
+  `from sqlalchemy.orm import relationship, backref`, but only
+  `relationship` had been imported. Fixed by adding `backref` to the
+  import line.
+- `tests/test_knowledge_service.py` didn't show up in pytest's collected
+  list at all (not an error, just silently absent) — turned out the file
+  had been saved as `test_knowledge_service` with no `.py` extension, so
+  pytest's `test_*.py` discovery pattern never matched it. Renamed via
+  `mv tests/test_knowledge_service tests/test_knowledge_service.py`.
+
 ## Not built yet
-- Document ingestion + chunking (chunking strategy still undecided)
-- Similarity search (cosine similarity, plain Python loop over rows)
-- Retrieval step wired into `run_chat()` in `persona_service.py`
-- Any endpoint for uploading/attaching knowledge to a persona
-- Tests for any of the above
+- Similarity search (cosine similarity, plain Python loop over stored
+  `embedding` columns given a query)
+- Retrieval step wired into `run_chat()` in `persona_service.py` — the
+  seam for this was called out explicitly in the original Phase 2 handoff
+  doc
+- Any HTTP endpoint (`routers/knowledge.py` + `schemas/knowledge.py`) to
+  trigger ingestion from outside a test — `ingest_document()` is currently
+  only callable directly in Python
+- `backend/deploy/persona-ai-hub.service` (still deferred from Phase 1)
+- Frontend
 
 ## Next immediate step
-Decide chunking strategy (fixed-size vs. paragraph-based) against real
-source material — likely the actual university notes intended for the
-Second Brain/Study Assistant persona — then build the ingestion step that
-chunks, embeds via `ollama_client.embed()`, and stores rows in
-`knowledge`.
+Build similarity search: given a query string, embed it via
+`ollama_client.embed()`, compare against stored `Knowledge.embedding`
+vectors for a persona (cosine similarity, plain Python loop — fine at
+personal scale per the original Phase 2 handoff), return the top N
+matching chunks. Once that's confirmed working on its own, wire it into
+`run_chat()` as the retrieval step, then build the `/knowledge` ingestion
+endpoint so documents can be uploaded without going through a test.
