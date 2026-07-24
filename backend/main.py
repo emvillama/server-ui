@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from backend.database import Base, engine
-from backend.routers import health, personas, chat
+from backend.routers import health, personas, chat, knowledge
 import backend.models  # noqa: F401 -- ensures models are registered before create_all
 
 
@@ -27,3 +27,4 @@ app = FastAPI(title="Persona AI Hub", version="0.1.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(personas.router)
 app.include_router(chat.router)
+app.include_router(knowledge.router)
