@@ -10,6 +10,7 @@ from backend.models.knowledge import Knowledge
 from backend.services import ollama_client
 from backend.services.chunking import chunk_text
 from backend.services.persona_service import get_persona  # also validates persona exists
+from backend.services.similarity import cosine_similarity
 
 
 async def ingest_document(
@@ -48,3 +49,31 @@ async def ingest_document(
         db.refresh(row)
 
     return knowledge_rows
+
+
+async def search_knowledge(
+    db: Session, persona_id: int, query: str, top_n: int = 5
+) -> list[Knowledge]:
+    """
+    Embeds `query`, compares it against every stored Knowledge chunk for
+    this persona via cosine similarity, and returns the top_n most similar
+    chunks, best match first.
+
+    Plain Python loop over rows -- fine at personal scale (see the Phase 2
+    handoff notes). Returns fewer than top_n if the persona has fewer
+    chunks than that.
+    """
+    get_persona(db, persona_id)  # PersonaNotFoundError if missing
+
+    chunks = db.query(Knowledge).filter(Knowledge.persona_id == persona_id).all()
+    if not chunks:
+        return []
+
+    query_vector = await ollama_client.embed(model=settings.embedding_model, text=query)
+
+    scored = [
+        (cosine_similarity(query_vector, chunk.embedding), chunk) for chunk in chunks
+    ]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+
+    return [chunk for _, chunk in scored[:top_n]]
