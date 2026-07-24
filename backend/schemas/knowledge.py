@@ -14,6 +14,12 @@ class KnowledgeIngestRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
 
+class DocumentSummaryOut(BaseModel):
+    source_filename: str
+    chunk_count: int
+    ingested_at: datetime
+
+
 class KnowledgeOut(BaseModel):
     id: int
     persona_id: int
