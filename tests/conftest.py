@@ -53,3 +53,25 @@ def persona(client):
     )
     assert resp.status_code == 201
     return resp.json()
+
+
+@pytest.fixture()
+def db():
+    """
+    A raw SQLAlchemy session against its own throwaway SQLite file --
+    for tests that call service-layer functions directly (e.g.
+    knowledge_service.ingest_document()) rather than going through the
+    HTTP layer, so they don't need the `client`/`persona` fixtures above.
+    """
+    db_fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(db_fd)
+    engine = create_engine(
+        f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
+    )
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    session = Session()
+    yield session
+    session.close()
+    engine.dispose()
+    os.remove(db_path)

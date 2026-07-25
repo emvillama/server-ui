@@ -1,27 +1,7 @@
-import os
-import tempfile
-
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from backend.database import Base
 from backend.services import ollama_client, persona_service, knowledge_service
 from backend.schemas.persona import PersonaCreate
-
-
-@pytest.fixture()
-def db():
-    db_fd, db_path = tempfile.mkstemp(suffix=".db")
-    os.close(db_fd)
-    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-    Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-    session = Session()
-    yield session
-    session.close()
-    engine.dispose()
-    os.remove(db_path)
 
 
 @pytest.mark.asyncio
