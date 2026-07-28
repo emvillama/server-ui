@@ -27,10 +27,19 @@ class OllamaParams(BaseModel):
 
 class Capabilities(BaseModel):
     """Per-persona feature flags. Extra keys allowed so this can grow in
-    Phase 5 without breaking existing personas."""
+    Phase 5 without breaking existing personas.
+
+    `tools` changed from a bool to a list of tool names in Phase 3, so a
+    persona can be attached to zero or more tools by name (e.g.
+    ["dice_roller"]). Existing DB rows with the old `tools: false` shape
+    are untouched by this change unless/until that persona is next
+    updated via PUT with capabilities explicitly provided -- PersonaOut
+    returns capabilities as a plain dict, not re-validated against this
+    schema on read.
+    """
 
     vision: bool = False
-    tools: bool = False
+    tools: list[str] = Field(default_factory=list)
     knowledge: bool = False
     web_search: bool = False
 
