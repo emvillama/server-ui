@@ -51,6 +51,64 @@ async def chat(model: str, messages: list[dict], options: dict | None = None) ->
         raise OllamaError(f"Unexpected response shape from Ollama: {data}") from exc
 
 
+async def chat_with_tools(
+    model: str,
+    messages: list[dict],
+    tools: list[dict],
+    options: dict | None = None,
+) -> dict:
+    """
+    Like chat(), but for tool-calling: passes `tools` (a list of Ollama
+    tool-schema dicts, e.g. from tool_registry.get_tool_schemas()) and
+    returns the raw assistant *message* dict from Ollama's response --
+    not just the content string.
+
+    The full message is needed rather than plain text because completing
+    a tool-call round trip means appending that exact message (which may
+    include a `tool_calls` field) back into the conversation history
+    before sending Ollama the tool's result as a follow-up "tool" role
+    message. A plain string return, like chat() gives, wouldn't carry
+    enough to do that -- hence a separate function rather than changing
+    chat()'s existing signature/return type.
+
+    The returned dict shape mirrors Ollama's own message format, e.g.:
+        {"role": "assistant", "content": "..."}
+    or, when the model wants to call a tool:
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "dice_roller", "arguments": {...}}}
+        ]}
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "stream": False,
+    }
+    if options:
+        cleaned = {k: v for k, v in options.items() if v is not None}
+        if cleaned:
+            payload["options"] = cleaned
+
+    url = f"{settings.ollama_host}/api/chat"
+    try:
+        async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+    except httpx.RequestError as exc:
+        raise OllamaError(f"Could not reach Ollama at {url}: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        raise OllamaError(
+            f"Ollama returned an error ({exc.response.status_code}): "
+            f"{exc.response.text}"
+        ) from exc
+
+    data = response.json()
+    try:
+        return data["message"]
+    except (KeyError, TypeError) as exc:
+        raise OllamaError(f"Unexpected response shape from Ollama: {data}") from exc
+
+
 async def is_reachable() -> bool:
     """Used by the /health endpoint to confirm Ollama is up."""
     url = f"{settings.ollama_host}/api/tags"
