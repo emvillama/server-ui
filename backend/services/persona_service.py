@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy.orm import Session
 
 from backend.config import settings
@@ -147,5 +149,64 @@ async def run_chat(
     messages.append({"role": "user", "content": message})
 
     model = persona.model or settings.default_model
+
+    # Only pass `tools` to Ollama if this persona actually has any
+    # attached (persona.capabilities["tools"], a list of tool names --
+    # see the Phase 3 handoff notes on why this is a plain list rather
+    # than a separate attachment table). Personas with no tools attached
+    # go through the plain chat() path unchanged, exactly as before this
+    # was added.
+    tool_names = (persona.capabilities or {}).get("tools") or []
+    if tool_names:
+        from backend.services import tool_registry
+
+        tools = tool_registry.get_tool_schemas(tool_names)
+    else:
+        tools = None
+
+    if tools:
+        assistant_message = await ollama_client.chat_with_tools(
+            model=model, messages=messages, tools=tools, options=persona.params
+        )
+        tool_calls = assistant_message.get("tool_calls")
+
+        if not tool_calls:
+            # Model chose not to use a tool for this message -- its
+            # content is the final reply, no follow-up call needed.
+            return assistant_message.get("content", ""), model
+
+        # Model wants to invoke one or more tools. Append its own
+        # message (including the tool_calls) back into history first --
+        # Ollama expects the assistant's tool-call message to be present
+        # before the corresponding "tool" role result messages that
+        # follow it.
+        messages.append(assistant_message)
+
+        for call in tool_calls:
+            function = call.get("function", {})
+            tool_name = function.get("name")
+            arguments = function.get("arguments", {}) or {}
+
+            executor = tool_registry.get_tool_executor(tool_name)
+            if executor:
+                result = executor(arguments)
+            else:
+                # Model requested a tool name that isn't registered (or
+                # wasn't offered to it) -- fed back as an error result
+                # rather than raised, so the model can see its own
+                # mistake and recover in its final reply.
+                result = {"error": f"Unknown tool '{tool_name}'"}
+
+            messages.append({"role": "tool", "content": json.dumps(result)})
+
+        # Single follow-up call to get the model's final natural-language
+        # reply now that it has the tool result(s). Deliberately not
+        # passed `tools` again and not looped -- one round trip only, to
+        # keep this narrow given llama3.1:8b's documented tool-calling
+        # fragility. A model requesting a second tool call here would
+        # just have that request's content returned as plain text.
+        reply = await ollama_client.chat(model=model, messages=messages, options=persona.params)
+        return reply, model
+
     reply = await ollama_client.chat(model=model, messages=messages, options=persona.params)
     return reply, model
