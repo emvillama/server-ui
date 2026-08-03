@@ -36,10 +36,17 @@ class Capabilities(BaseModel):
     updated via PUT with capabilities explicitly provided -- PersonaOut
     returns capabilities as a plain dict, not re-validated against this
     schema on read.
+
+    `skills` follows the identical shape (Phase 4): a list of skill names
+    (e.g. ["dnd-combat", "concise-answers"]), each resolved to a markdown
+    file on disk via services/skill_loader.py at chat time. Not stored in
+    the DB itself -- just referenced by name here, same relationship
+    `tools` has to tool_registry.py.
     """
 
     vision: bool = False
     tools: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
     knowledge: bool = False
     web_search: bool = False
 
