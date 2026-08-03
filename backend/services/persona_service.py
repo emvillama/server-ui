@@ -114,6 +114,20 @@ async def run_chat(
     if persona.system_prompt:
         messages.append({"role": "system", "content": persona.system_prompt})
 
+    # Skills: markdown instruction sets attached by name via
+    # capabilities["skills"], always injected (not retrieved) -- see the
+    # Phase 4 handoff notes on why always-injected was chosen over a
+    # Knowledge-style similarity search for this. Placed before the
+    # Knowledge block: skills are closer to "how you behave" (same
+    # family as system_prompt) than "what you currently know."
+    skill_names = (persona.capabilities or {}).get("skills") or []
+    if skill_names:
+        from backend.services import skill_loader
+
+        loaded_skills = skill_loader.load_skills(skill_names)
+        skills_content = "\n\n".join(content for _, content in loaded_skills)
+        messages.append({"role": "system", "content": skills_content})
+
     # Only attempt retrieval if this persona actually has knowledge
     # attached -- a cheap existence check avoids an extra Ollama
     # embedding call on every single chat message for personas that
