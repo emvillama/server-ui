@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
     db_path: str = "./data/persona_hub.db"
     ollama_timeout: float = 120.0
+    skills_dir: str = "./skills"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
