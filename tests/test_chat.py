@@ -1,4 +1,4 @@
-from backend.services import ollama_client
+from backend.services import ollama_client, persona_service, skill_loader
 
 
 def test_chat_with_persona(client, persona, monkeypatch):
@@ -52,3 +52,24 @@ def test_chat_surfaces_ollama_failure_as_502(client, persona, monkeypatch):
 
     resp = client.post("/chat", json={"persona_id": persona["id"], "message": "hi"})
     assert resp.status_code == 502
+
+
+def test_chat_surfaces_missing_skill_as_422(client, persona, monkeypatch):
+    async def failing_run_chat(db, persona_id, message, history):
+        raise skill_loader.SkillNotFoundError("No skill file found for 'ghost-skill'")
+ 
+    monkeypatch.setattr(persona_service, "run_chat", failing_run_chat)
+ 
+    resp = client.post("/chat", json={"persona_id": persona["id"], "message": "hi"})
+    assert resp.status_code == 422
+    assert "ghost-skill" in resp.json()["detail"]
+ 
+ 
+def test_chat_surfaces_invalid_skill_name_as_422(client, persona, monkeypatch):
+    async def failing_run_chat(db, persona_id, message, history):
+        raise skill_loader.InvalidSkillNameError("'../etc' isn't a valid skill name.")
+ 
+    monkeypatch.setattr(persona_service, "run_chat", failing_run_chat)
+ 
+    resp = client.post("/chat", json={"persona_id": persona["id"], "message": "hi"})
+    assert resp.status_code == 422
