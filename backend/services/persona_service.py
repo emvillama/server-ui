@@ -128,15 +128,20 @@ async def run_chat(
         skills_content = "\n\n".join(content for _, content in loaded_skills)
         messages.append({"role": "system", "content": skills_content})
 
-    # Only attempt retrieval if this persona actually has knowledge
-    # attached -- a cheap existence check avoids an extra Ollama
-    # embedding call on every single chat message for personas that
-    # never have knowledge (D&D GM, Recipe Recommender, etc.), at least
-    # until Phase 5's capabilities flags make "has knowledge" explicit.
-    has_knowledge = (
+    # Only attempt retrieval if this persona has the knowledge capability
+    # explicitly enabled AND actually has Knowledge rows attached. The
+    # flag is a necessary-but-not-sufficient gate (Phase 5) -- it existed
+    # only as an inert stored value before now. The existence check is
+    # kept alongside it (not replaced) for the same reason it existed in
+    # Phase 2: avoid a wasted Ollama embedding call for personas with the
+    # flag on but nothing ingested yet. `and` short-circuits, so the DB
+    # query never runs at all if the flag is off.
+    knowledge_enabled = (persona.capabilities or {}).get("knowledge", False)
+    has_knowledge = knowledge_enabled and (
         db.query(Knowledge).filter(Knowledge.persona_id == persona.id).first()
         is not None
     )
+    
     if has_knowledge:
         # Deferred import, not at module top: knowledge_service imports
         # get_persona from this module, so importing knowledge_service at
