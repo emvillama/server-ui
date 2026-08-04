@@ -51,7 +51,13 @@ Scoped strictly to what was in this phase's own (narrow) scope — the following
 - **`web_search` flag** — still stored, still inert. No web-search tool exists in `tool_registry.py` yet; this is still the "next decision" first flagged at the end of Phase 3.
 - **Data migration for pre-Phase-5 personas** — explicitly declined; see Decision #3 above.
 
-## Pending Before Phase Close
+## Live Confirmation
 
-- **Live confirmation against the real server** — not yet done as of this writing. Plan: create a persona via Swagger/curl, ingest a document, confirm chat does *not* retrieve with `capabilities.knowledge` off, flip it on, confirm it does.
-- **Wiki update** — Phase 3, 4, and 5 content all still due.
+Ran against the real server via curl: created a persona, ingested a test document, confirmed via `/chat` with `capabilities.knowledge` off. Initial pass used "powerhouse of the cell" as the ingested detail, which turned out to be an ambiguous tell — `llama3.1:8b` already knows that phrase from training, so it wasn't clear whether the reply reflected retrieval or the model's own knowledge.
+
+Re-ran with an artificial, training-independent detail added to the ingested text ("it is associated with the number 5") to remove the ambiguity:
+
+- **Flag off** → reply had no mention of the number-5 association (and no way it could, since that fact only exists in the ingested chunk).
+- **Flag on** → reply surfaced the number-5 detail, confirming the retrieved chunk actually reached the model via the system message.
+
+Confirms the AND gate behaves correctly end-to-end, not just in the mocked test suite. Worth remembering for future live-confirmation passes on this project: prefer an artificial/distinctive detail over a well-known fact when testing retrieval, since a well-known fact can't distinguish "the model already knew this" from "retrieval worked."
