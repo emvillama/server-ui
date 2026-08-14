@@ -17,7 +17,9 @@ class PantryItemNotFoundError(Exception):
     for this persona."""
 
 
-def upsert_pantry_item(db: Session, persona_id: int, data: PantryItemCreate) -> PantryItem:
+def upsert_pantry_item(
+    db: Session, persona_id: int, data: PantryItemCreate
+) -> tuple[PantryItem, bool]:
     """
     Looks up an existing row by (persona_id, name) -- exact, case-
     sensitive match, per the Phase 5.5 handoff notes. If found:
@@ -31,6 +33,10 @@ def upsert_pantry_item(db: Session, persona_id: int, data: PantryItemCreate) -> 
         mismatched units together (e.g. "2 cups" + "500 g")
 
     If not found, a new row is created as-is.
+
+    Returns (item, created) -- created is True only when a brand new row
+    was inserted, False for both merge paths above. The router uses this
+    to return 201 vs 200, per REST status-code conventions.
     """
     get_persona(db, persona_id)
 
@@ -48,6 +54,7 @@ def upsert_pantry_item(db: Session, persona_id: int, data: PantryItemCreate) -> 
             unit=data.unit,
         )
         db.add(item)
+        created = True
     else:
         can_sum = (
             existing.unit == data.unit
@@ -60,10 +67,11 @@ def upsert_pantry_item(db: Session, persona_id: int, data: PantryItemCreate) -> 
             existing.quantity = data.quantity
             existing.unit = data.unit
         item = existing
+        created = False
 
     db.commit()
     db.refresh(item)
-    return item
+    return item, created
 
 
 def list_pantry_items(db: Session, persona_id: int) -> list[PantryItem]:

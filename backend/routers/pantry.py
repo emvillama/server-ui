@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
@@ -20,6 +20,25 @@ def add_pantry_item(persona_id: int, data: PantryItemCreate, db: Session = Depen
         return pantry_service.upsert_pantry_item(db, persona_id, data)
     except persona_svc.PersonaNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("", response_model=PantryItemOut)
+def add_pantry_item(
+    persona_id: int,
+    data: PantryItemCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Upsert-add: merges into an existing row with the same name if one
+    exists. Returns 201 if a new row was created, 200 if it merged into
+    an existing one -- see upsert_pantry_item()'s created flag."""
+    try:
+        item, created = pantry_service.upsert_pantry_item(db, persona_id, data)
+    except persona_svc.PersonaNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    response.status_code = 201 if created else 200
+    return item
 
 
 @router.get("", response_model=list[PantryItemOut])
