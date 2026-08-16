@@ -13,7 +13,7 @@ router = APIRouter(tags=["chat"])
 @router.post("/chat", response_model=ChatResponse)
 async def chat(data: ChatRequest, db: Session = Depends(get_db)):
     try:
-        reply, model = await svc.run_chat(
+        reply, model, structured_output = await svc.run_chat(
             db, data.persona_id, data.message, data.history
         )
     except svc.PersonaNotFoundError as exc:
@@ -23,4 +23,9 @@ async def chat(data: ChatRequest, db: Session = Depends(get_db)):
     except (skill_loader.SkillNotFoundError, skill_loader.InvalidSkillNameError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    return ChatResponse(persona_id=data.persona_id, reply=reply, model=model)
+    return ChatResponse(
+        persona_id=data.persona_id,
+        reply=reply,
+        model=model,
+        structured_output=structured_output,
+    )
