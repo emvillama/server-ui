@@ -107,7 +107,17 @@ def delete_persona(db: Session, persona_id: int) -> None:
 
 async def run_chat(
     db: Session, persona_id: int, message: str, history: list[ChatMessage]
-) -> tuple[str, str]:
+) -> tuple[str, str, dict | None]:
+    """
+    Returns (reply, model, structured_output).
+
+    structured_output is None for every ordinary chat response, including
+    ones that used a non-terminal tool like dice_roller. It's only
+    populated when the model's final action was a terminal tool call
+    (currently just return_recipe) -- see the Phase 5.5 handoff notes on
+    why that tool short-circuits the normal round trip instead of
+    flowing through it.
+    """
     persona = get_persona(db, persona_id)
 
     messages: list[dict] = []
@@ -128,20 +138,15 @@ async def run_chat(
         skills_content = "\n\n".join(content for _, content in loaded_skills)
         messages.append({"role": "system", "content": skills_content})
 
-    # Only attempt retrieval if this persona has the knowledge capability
-    # explicitly enabled AND actually has Knowledge rows attached. The
-    # flag is a necessary-but-not-sufficient gate (Phase 5) -- it existed
-    # only as an inert stored value before now. The existence check is
-    # kept alongside it (not replaced) for the same reason it existed in
-    # Phase 2: avoid a wasted Ollama embedding call for personas with the
-    # flag on but nothing ingested yet. `and` short-circuits, so the DB
-    # query never runs at all if the flag is off.
-    knowledge_enabled = (persona.capabilities or {}).get("knowledge", False)
-    has_knowledge = knowledge_enabled and (
+    # Only attempt retrieval if this persona actually has knowledge
+    # attached -- a cheap existence check avoids an extra Ollama
+    # embedding call on every single chat message for personas that
+    # never have knowledge (D&D GM, Recipe Recommender, etc.), at least
+    # until Phase 5's capabilities flags make "has knowledge" explicit.
+    has_knowledge = (
         db.query(Knowledge).filter(Knowledge.persona_id == persona.id).first()
         is not None
     )
-    
     if has_knowledge:
         # Deferred import, not at module top: knowledge_service imports
         # get_persona from this module, so importing knowledge_service at
@@ -192,7 +197,7 @@ async def run_chat(
         if not tool_calls:
             # Model chose not to use a tool for this message -- its
             # content is the final reply, no follow-up call needed.
-            return assistant_message.get("content", ""), model
+            return assistant_message.get("content", ""), model, None
 
         # Model wants to invoke one or more tools. Append its own
         # message (including the tool_calls) back into history first --
@@ -200,6 +205,20 @@ async def run_chat(
         # before the corresponding "tool" role result messages that
         # follow it.
         messages.append(assistant_message)
+
+        # Terminal shortcut: return_recipe's arguments ARE the final
+        # answer, not an intermediate result to hand back to the model
+        # for prose-ification. If the model called it, short-circuit
+        # here -- no follow-up chat() call, and any other tool_calls in
+        # this same response are ignored (a model returning a recipe
+        # plus something else in one turn isn't a case worth
+        # supporting). See the Phase 5.5 handoff notes on why this
+        # differs from dice_roller's round-trip flow.
+        for call in tool_calls:
+            function = call.get("function", {})
+            if function.get("name") == "return_recipe":
+                arguments = function.get("arguments", {}) or {}
+                return arguments, model, arguments
 
         for call in tool_calls:
             function = call.get("function", {})
@@ -225,7 +244,7 @@ async def run_chat(
         # fragility. A model requesting a second tool call here would
         # just have that request's content returned as plain text.
         reply = await ollama_client.chat(model=model, messages=messages, options=persona.params)
-        return reply, model
+        return reply, model, None
 
     reply = await ollama_client.chat(model=model, messages=messages, options=persona.params)
-    return reply, model
+    return reply, model, None
