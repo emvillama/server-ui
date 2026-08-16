@@ -37,11 +37,13 @@ async def test_run_chat_executes_tool_and_returns_final_reply(db, monkeypatch):
     monkeypatch.setattr(ollama_client, "chat_with_tools", fake_chat_with_tools)
     monkeypatch.setattr(ollama_client, "chat", fake_chat)
 
-    reply, model = await persona_service.run_chat(
+    reply, model, structured_output = await persona_service.run_chat(
         db, persona.id, "I attack the goblin, roll 2d6+3", []
     )
 
     assert reply == "You rolled well! The goblin flinches."
+    # dice_roller is a non-terminal tool -- structured_output stays None
+    assert structured_output is None
 
     messages = captured["messages"]
     # the assistant's own tool-call message should be present before the
@@ -88,7 +90,7 @@ async def test_run_chat_skips_tools_for_persona_with_no_tools_attached(db, monke
     monkeypatch.setattr(ollama_client, "chat_with_tools", fake_chat_with_tools)
     monkeypatch.setattr(ollama_client, "chat", fake_chat)
 
-    reply, model = await persona_service.run_chat(db, persona.id, "hello", [])
+    reply, model, structured_output = await persona_service.run_chat(db, persona.id, "hello", [])
 
     # chat_with_tools() should never have been touched -- no tools
     # attached, so the cheap capabilities check should short-circuit
@@ -96,6 +98,7 @@ async def test_run_chat_skips_tools_for_persona_with_no_tools_attached(db, monke
     # existed at all.
     assert chat_with_tools_called["n"] == 0
     assert reply == "ok"
+    assert structured_output is None
     assert captured["messages"] == [
         {"role": "system", "content": "Be terse."},
         {"role": "user", "content": "hello"},
@@ -128,11 +131,12 @@ async def test_run_chat_returns_content_directly_when_model_declines_tool(db, mo
     monkeypatch.setattr(ollama_client, "chat_with_tools", fake_chat_with_tools)
     monkeypatch.setattr(ollama_client, "chat", fake_chat)
 
-    reply, model = await persona_service.run_chat(
+    reply, model, structured_output = await persona_service.run_chat(
         db, persona.id, "what do I see in the room?", []
     )
 
     assert reply == "Sure, what would you like to do next?"
+    assert structured_output is None
 
 
 @pytest.mark.asyncio
@@ -164,9 +168,12 @@ async def test_run_chat_handles_unregistered_tool_name_gracefully(db, monkeypatc
     monkeypatch.setattr(ollama_client, "chat_with_tools", fake_chat_with_tools)
     monkeypatch.setattr(ollama_client, "chat", fake_chat)
 
-    reply, model = await persona_service.run_chat(db, persona.id, "is it raining?", [])
+    reply, model, structured_output = await persona_service.run_chat(
+        db, persona.id, "is it raining?", []
+    )
 
     assert reply == "Sorry, I can't check the weather."
+    assert structured_output is None
 
     tool_result_messages = [
         m for m in captured["messages"] if m.get("role") == "tool"
