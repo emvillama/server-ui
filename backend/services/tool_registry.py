@@ -63,6 +63,63 @@ TOOL_REGISTRY: dict[str, dict] = {
 }
 
 
+def _execute_return_recipe(arguments: dict) -> dict:
+    # No actual computation -- this tool's "execution" is just handing
+    # its own arguments back unchanged. It exists so the model has a
+    # forced, schema-validated shape to put a recipe into; the real work
+    # happens in run_chat()'s terminal shortcut, which intercepts this
+    # call before it ever reaches this function in the normal flow.
+    # Still implemented (rather than left as a no-op/None) so a stray
+    # call to it outside that shortcut -- e.g. if a persona has this
+    # tool attached without the terminal-shortcut path applying for some
+    # reason -- doesn't crash the request.
+    return arguments
+
+
+TOOL_REGISTRY: dict[str, dict] = {
+    "dice_roller": {
+        # ... unchanged
+    },
+    "return_recipe": {
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "return_recipe",
+                "description": (
+                    "Returns a completed recipe in structured form. Always "
+                    "use this to deliver a final recipe recommendation -- "
+                    "never write the recipe out as plain prose instead."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "The recipe's name.",
+                        },
+                        "ingredients": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Each ingredient with its amount, e.g. "
+                                "'2 cups flour'."
+                            ),
+                        },
+                        "steps": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Each preparation step, in order.",
+                        },
+                    },
+                    "required": ["title", "ingredients", "steps"],
+                },
+            },
+        },
+        "execute": _execute_return_recipe,
+    },
+}
+
+
 def get_tool_schemas(tool_names: list[str]) -> list[dict]:
     """
     Returns the Ollama-facing schema for each name in `tool_names` that's
