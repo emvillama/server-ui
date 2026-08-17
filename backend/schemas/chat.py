@@ -24,5 +24,5 @@ class ChatResponse(BaseModel):
     # arguments so the frontend can render structured UI (e.g. the
     # Recipe tab) instead of parsing it back out of prose. None for
     # every other chat response, including ones that used non-terminal
-    # tools like dice_roller.
+    # tools like dice_roller. See the Phase 5.5 handoff notes.
     structured_output: dict | None = None
