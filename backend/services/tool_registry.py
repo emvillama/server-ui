@@ -16,6 +16,13 @@ real result, or {"error": "..."} if the arguments were bad. Errors are
 returned rather than raised so the caller can feed them back to the
 model as the tool result (letting the model see its own mistake and
 retry), rather than the request failing outright.
+
+return_recipe is the one exception to the "result feeds back to the
+model" pattern above -- it's a terminal tool (see the Phase 5.5 handoff
+notes), and persona_service.run_chat() intercepts it by name before it
+ever reaches this registry's execute path in the normal flow. Its
+execute function is still implemented rather than left as a no-op, so a
+stray call to it outside that shortcut doesn't crash the request.
 """
 
 from typing import Callable
@@ -29,6 +36,10 @@ def _execute_dice_roller(arguments: dict) -> dict:
         return roll_dice(notation)
     except DiceNotationError as exc:
         return {"error": str(exc)}
+
+
+def _execute_return_recipe(arguments: dict) -> dict:
+    return arguments
 
 
 TOOL_REGISTRY: dict[str, dict] = {
@@ -59,26 +70,6 @@ TOOL_REGISTRY: dict[str, dict] = {
             },
         },
         "execute": _execute_dice_roller,
-    }
-}
-
-
-def _execute_return_recipe(arguments: dict) -> dict:
-    # No actual computation -- this tool's "execution" is just handing
-    # its own arguments back unchanged. It exists so the model has a
-    # forced, schema-validated shape to put a recipe into; the real work
-    # happens in run_chat()'s terminal shortcut, which intercepts this
-    # call before it ever reaches this function in the normal flow.
-    # Still implemented (rather than left as a no-op/None) so a stray
-    # call to it outside that shortcut -- e.g. if a persona has this
-    # tool attached without the terminal-shortcut path applying for some
-    # reason -- doesn't crash the request.
-    return arguments
-
-
-TOOL_REGISTRY: dict[str, dict] = {
-    "dice_roller": {
-        # ... unchanged
     },
     "return_recipe": {
         "schema": {
