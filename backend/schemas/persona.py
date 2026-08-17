@@ -42,6 +42,18 @@ class Capabilities(BaseModel):
     file on disk via services/skill_loader.py at chat time. Not stored in
     the DB itself -- just referenced by name here, same relationship
     `tools` has to tool_registry.py.
+
+    `features` (Phase 5.5) is the frontend-facing counterpart to `tools`/
+    `skills`: a list of sub-resource tab names this persona exposes (e.g.
+    ["chat", "favorites", "pantry", "options"]). Unlike `tools` and
+    `skills`, this has no backend enforcement mechanism of its own --
+    the Favorites/Pantry endpoints work regardless of what's listed here,
+    since a persona_id is a persona_id. `features` exists purely so
+    GET /personas can tell the frontend which tabs to render for a given
+    persona, same role `ui_theme` plays for top-level tab-to-persona
+    routing (see the Phase 6 handoff notes). A persona with "pantry" in
+    `tools` or `skills` wouldn't mean anything; a persona with "pantry"
+    in `features` means "show the Pantry tab for this persona."
     """
 
     vision: bool = False
@@ -49,6 +61,7 @@ class Capabilities(BaseModel):
     skills: list[str] = Field(default_factory=list)
     knowledge: bool = False
     web_search: bool = False
+    features: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="allow")
 
