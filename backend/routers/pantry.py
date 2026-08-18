@@ -9,19 +9,6 @@ from backend.services import persona_service as persona_svc
 router = APIRouter(prefix="/personas/{persona_id}/pantry", tags=["pantry"])
 
 
-@router.post("", response_model=PantryItemOut, status_code=201)
-def add_pantry_item(persona_id: int, data: PantryItemCreate, db: Session = Depends(get_db)):
-    """Upsert-add: merges into an existing row with the same name if one
-    exists, per upsert_pantry_item()'s merge rules. Always 201, even on
-    a merge, since the response reflects the item's current state either
-    way -- there's no meaningful distinction from the caller's side
-    between "created" and "merged"."""
-    try:
-        return pantry_service.upsert_pantry_item(db, persona_id, data)
-    except persona_svc.PersonaNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-
-
 @router.post("", response_model=PantryItemOut)
 def add_pantry_item(
     persona_id: int,
