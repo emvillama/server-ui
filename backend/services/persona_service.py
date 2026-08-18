@@ -138,36 +138,40 @@ async def run_chat(
         skills_content = "\n\n".join(content for _, content in loaded_skills)
         messages.append({"role": "system", "content": skills_content})
 
-    # Only attempt retrieval if this persona actually has knowledge
-    # attached -- a cheap existence check avoids an extra Ollama
-    # embedding call on every single chat message for personas that
-    # never have knowledge (D&D GM, Recipe Recommender, etc.), at least
-    # until Phase 5's capabilities flags make "has knowledge" explicit.
-    has_knowledge = (
-        db.query(Knowledge).filter(Knowledge.persona_id == persona.id).first()
-        is not None
-    )
-    if has_knowledge:
-        # Deferred import, not at module top: knowledge_service imports
-        # get_persona from this module, so importing knowledge_service at
-        # the top of this file would create a circular import. By the
-        # time run_chat() actually executes, both modules are already
-        # fully loaded, so importing here avoids the cycle entirely.
-        from backend.services import knowledge_service
-
-        retrieved = await knowledge_service.search_knowledge(
-            db, persona.id, message, top_n=5
+    # Phase 5: capabilities.knowledge is a necessary gate, not just the
+    # row-existence check -- a persona can have real Knowledge rows
+    # attached (e.g. from before this flag existed) and still have
+    # retrieval skipped if the flag itself is off. Existence check still
+    # matters on top of the flag: it's what avoids a wasted embedding
+    # call for a persona that has the capability enabled but nothing
+    # ingested yet.
+    knowledge_enabled = (persona.capabilities or {}).get("knowledge", False)
+    if knowledge_enabled:
+        has_knowledge = (
+            db.query(Knowledge).filter(Knowledge.persona_id == persona.id).first()
+            is not None
         )
-        if retrieved:
-            context = "\n\n".join(
-                f"[{chunk.source_filename}] {chunk.chunk_text}" for chunk in retrieved
+        if has_knowledge:
+            # Deferred import, not at module top: knowledge_service imports
+            # get_persona from this module, so importing knowledge_service at
+            # the top of this file would create a circular import. By the
+            # time run_chat() actually executes, both modules are already
+            # fully loaded, so importing here avoids the cycle entirely.
+            from backend.services import knowledge_service
+
+            retrieved = await knowledge_service.search_knowledge(
+                db, persona.id, message, top_n=5
             )
-            messages.append(
-                {
-                    "role": "system",
-                    "content": f"Relevant context from your knowledge base:\n\n{context}",
-                }
-            )
+            if retrieved:
+                context = "\n\n".join(
+                    f"[{chunk.source_filename}] {chunk.chunk_text}" for chunk in retrieved
+                )
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": f"Relevant context from your knowledge base:\n\n{context}",
+                    }
+                )
 
     messages.extend({"role": m.role, "content": m.content} for m in history)
     messages.append({"role": "user", "content": message})
@@ -218,7 +222,12 @@ async def run_chat(
             function = call.get("function", {})
             if function.get("name") == "return_recipe":
                 arguments = function.get("arguments", {}) or {}
-                return arguments, model, arguments
+                title = arguments.get("title", "Recipe")
+                # reply is a short human-readable string, not the raw
+                # dict -- ChatResponse.reply is typed as str. The full
+                # structured data goes out separately via
+                # structured_output.
+                return f"Here's your recipe: {title}", model, arguments
 
         for call in tool_calls:
             function = call.get("function", {})
