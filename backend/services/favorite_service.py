@@ -8,7 +8,7 @@ shape, minus anything Ollama-related.
 
 from sqlalchemy.orm import Session
 
-from backend.models.favorite import Favorite
+from backend.models.favorites import Favorite
 from backend.schemas.favorite import FavoriteCreate
 from backend.services.persona_service import get_persona
 
