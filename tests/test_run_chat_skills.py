@@ -118,7 +118,7 @@ async def test_run_chat_skills_come_before_knowledge_block(db, skills_dir, monke
         db,
         PersonaCreate(
             name="Skill And Knowledge Bot",
-            capabilities=Capabilities(skills=["concise-answers"]),
+            capabilities=Capabilities(skills=["concise-answers"], knowledge=True),
         ),
     )
 
