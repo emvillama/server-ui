@@ -1,8 +1,19 @@
-# Phase 5.5 DevLog: Persona Feature Resources (Favorites & Pantry)
+# Phase Recipe Recommender — DevLog
 
-## Context
+Naming note: personas now get their own dedicated devlog covering both
+their backend and frontend work, instead of competing for the next
+integer in a single shared phase sequence. This phase's backend section
+was previously drafted as standalone "Phase 5.5," with frontend work
+slated as "Phase 6" -- consolidated here since both belong to the same
+persona and are easier to track together. Future personas (Coding
+Assistant, etc.) get their own `Phase_<PersonaName>_DevLog.md` following
+this same shape.
 
-Phase 6 (frontend) started from the assumption that a persona is just a tab
+## Backend
+
+### Context
+
+Frontend planning started from the assumption that a persona is just a tab
 with different chat context injected -- different skills, knowledge, tools.
 That held up until designing the Recipe Recommender's tab layout (Favorites,
 Pantry, Chat, Options) made it clear some personas need actual persistent,
@@ -10,11 +21,11 @@ queryable resources of their own, not just different chat behavior. Favorites
 and Pantry aren't things the model produces per-message; they're things a
 user builds up over time and expects to still be there next session.
 
-This phase pauses Phase 6 frontend work to build that backend support first,
-per the project's decision-first discipline -- building UI against endpoints
-that don't exist yet isn't a real Phase 6 start, it's guessing.
+Backend work paused frontend planning to build that support first, per the
+project's decision-first discipline -- building UI against endpoints that
+don't exist yet isn't a real frontend start, it's guessing.
 
-## Components (build order)
+### Components (build order)
 
 **1. `Favorite` and `PantryItem` models**
 Both follow the exact FK/cascade shape `Knowledge` already established:
@@ -77,8 +88,7 @@ a list of sub-resource tab names (e.g. `["chat", "favorites", "pantry",
 enforcement -- the Favorites/Pantry endpoints work regardless of what a
 persona's `features` list says, since a `persona_id` is a `persona_id`.
 It exists purely so `GET /personas` can tell the frontend which tabs to
-render, extending the tab-routing plan from Phase 6's `ui_theme` field
-down to the sub-tab level.
+render, extending the tab-routing plan down to the sub-tab level.
 
 **7. Tests**
 `test_favorites.py` and `test_pantry.py` at the endpoint level (sync,
@@ -89,7 +99,18 @@ ignoring other tool calls in the same response, and a missing-title
 fallback. `test_run_chat_tools.py` got the 2-tuple-to-3-tuple unpacking
 updated across its four assertions that actually unpack the return value.
 
-## Bugs Found and Fixed
+**8. CORS middleware**
+Added after the rest of this phase was already empirically confirmed --
+without it, every endpoint in this codebase (not just the new Favorites/
+Pantry ones) is unreachable from a browser, since the same-origin policy
+blocks the frontend's JavaScript from reading responses across the
+`localhost:5173` → `localhost:8000` port boundary. `curl` doesn't hit this
+at all, which is why everything tested fine over the command line despite
+CORS not existing yet. `cors_origins` was added to `Settings` rather than
+hardcoded in `main.py`, consistent with how `ollama_host`/`db_path` are
+handled -- nothing environment-specific belongs baked into the code.
+
+### Bugs Found and Fixed
 
 Several of these only surfaced during empirical confirmation against real
 pytest/SQLite -- exactly the value of not marking a phase done on code
@@ -134,7 +155,7 @@ review alone.
   `test_run_chat_knowledge.py`) were asserting contradictory things about
   the same code path until this was reconciled.
 
-## Empirical Confirmation
+### Empirical Confirmation
 
 Full automated suite: 172/172 passing. Live walkthrough against the real
 backend, real SQLite file, and real Ollama on the RX 580: persona creation
@@ -144,7 +165,12 @@ result as a Favorite, and the full Pantry upsert path -- same-unit merge,
 cross-unit overwrite -- all confirmed working as designed, not just as
 tested.
 
-## Project File Structure
+CORS middleware is the one piece of this phase not yet confirmed the same
+way -- `curl` doesn't exercise the browser's same-origin policy, so there's
+no real preflight to test against until the frontend exists. Worth a
+sanity check with a real `fetch()` call once frontend scaffolding is up.
+
+### Project File Structure
 
 Full backend layout as of this phase, tests excluded. `[new]` marks files
 added in this phase; everything else predates it.
@@ -152,15 +178,15 @@ added in this phase; everything else predates it.
 ```
 backend/
 ├── __init__.py
-├── main.py
-├── config.py
+├── main.py                     (CORSMiddleware added this phase)
+├── config.py                    (gained `cors_origins` this phase)
 ├── database.py
 │
 ├── models/
 │   ├── __init__.py
 │   ├── persona.py
 │   ├── knowledge.py
-│   ├── favorites.py        [new]
+│   ├── favorite.py        [new]
 │   └── pantry.py           [new]
 │
 ├── schemas/
@@ -196,17 +222,8 @@ data/
 └── persona_hub.db             # SQLite file; gained `favorites` and `pantry_items` tables
 ```
 
-## Not Built Yet
+### Not Built Yet
 
-- **CORS middleware.** Still not added to `main.py`. Everything in this
-  phase is confirmed working over direct API calls, but the frontend can't
-  reach any of it -- including the pre-existing endpoints from earlier
-  phases -- until this is in place. Next concrete step before frontend
-  work starts.
-- **Coding Assistant's Debugging/File Generation tabs.** Deliberately not
-  designed alongside Favorites/Pantry -- those need their own
-  explicit-decision pass (what does "backend support" even mean for a
-  debugging tab?) rather than being shoehorned into this phase's shape.
 - **Unit conversion in Pantry.** Mismatched-unit adds overwrite rather
   than convert (e.g. "2 cups" + "500 g" doesn't attempt to reconcile).
   Simple by design for now; revisit if it turns out to matter in practice.
@@ -218,3 +235,10 @@ data/
   during empirical confirmation was a one-off manual `curl` call, not
   something the app creates automatically -- worth deciding whether
   personas like this get seeded on startup or stay a manual setup step.
+
+## Frontend
+
+*Not started yet.* This section will be filled in following the same
+shape as Backend above (Context, Components, Bugs Found and Fixed,
+Empirical Confirmation, Project File Structure, Not Built Yet) once
+frontend work on the Recipe Recommender begins.
