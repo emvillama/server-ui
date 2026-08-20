@@ -10,6 +10,7 @@ Alembic migrations if the schema outgrows `create_all`).
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import Base, engine
 from backend.routers import health, personas, chat, knowledge, favorites, pantry
@@ -23,6 +24,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Persona AI Hub", version="0.1.0", lifespan=lifespan)
+
+# Allows the Vite dev server (a different origin from the browser's
+# perspective, since it's a different port) to actually read responses
+# from this API. Origins come from settings.cors_origins rather than
+# being hardcoded here, same reasoning as ollama_host/db_path -- nothing
+# machine- or environment-specific belongs baked into the code itself.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(health.router)
 app.include_router(personas.router)
