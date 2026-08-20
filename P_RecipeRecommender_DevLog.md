@@ -238,7 +238,52 @@ data/
 
 ## Frontend
 
-*Not started yet.* This section will be filled in following the same
-shape as Backend above (Context, Components, Bugs Found and Fixed,
-Empirical Confirmation, Project File Structure, Not Built Yet) once
-frontend work on the Recipe Recommender begins.
+### Context
+
+Design work happened before any scaffolding, per the project's
+explicit-decisions-before-code discipline -- wireframes first (two states:
+book closed on entry, book open once there's content to show), then
+themed reference photos for visual direction (warm wood/parchment palette,
+taped Polaroid-style photos, torn-paper sticky notes, a soft 3D chef
+character). The references matched the wireframe's structure closely
+enough to use directly, with one real conflict resolved below.
+
+**Persistent across every tab:**
+- Chat bubbles, top-left -- user message above, AI response below
+- Chef avatar
+- Book spine tabs as primary nav: Chat / Pantry / Favorites / Options, in
+  that order, always visible regardless of active tab
+- Bottom bar: persistent chat input ("Ask Chef anything..."), available
+  on every tab, not just Chat
+
+**Chat tab -- two states:**
+- *Idle*: book closed, cover + spine tabs only
+- *Recipe returned*: book open to a two-page spread -- title, ingredients,
+  and steps only, no sub-tabs (Ingredients/Steps/Notes/Nutrition/
+  Substitutions, as shown in one reference photo, was considered and
+  rejected -- `Favorite` only stores `title`/`ingredients`/`steps`, so the
+  displayed recipe never promises data the backend can't actually save)
+
+**Pantry tab:** two-page spread -- left page lists current items with
+search/filter, right page is an add-item form. Matches `PantryItemCreate`/
+`PantryItemOut` exactly (name, quantity, unit); the reference photo's
+category field and low-stock indicator go beyond what's stored, so those
+get simplified out rather than carried over as unbacked UI.
+
+**Favorites tab:** two-page spread -- left page search/filter, right page
+lists saved favorites (title, ingredient/step counts, delete affordance).
+Same simplification applies -- the reference's tags, dietary filters, and
+cook-time slider aren't backed by any stored field on `Favorite`.
+
+**Options tab:** persona settings, not user account settings -- editing
+`system_prompt`, `capabilities` (`tools`, `skills`, `features`, `knowledge`,
+`web_search`, `vision`), `params` (temperature, top_p, etc.), and `model`
+for this persona. This maps directly onto the existing `PUT /personas/
+{persona_id}` endpoint and `PersonaUpdate` schema -- no new backend work
+needed for this tab, just a form that reads `GET /personas/{persona_id}`
+and PUTs back whatever changed, following the same omitted-vs-null
+semantics `PersonaUpdate` already implements.
+
+This section will continue to fill in (Components, Bugs Found and Fixed,
+Empirical Confirmation, Project File Structure, Not Built Yet) as
+scaffolding and implementation actually begin.
