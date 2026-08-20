@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     db_path: str = "./data/persona_hub.db"
     ollama_timeout: float = 120.0
     skills_dir: str = "./skills"
+    cors_origins: list[str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
