@@ -15,6 +15,11 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # Editor/OS
 .vscode/
 .idea/
