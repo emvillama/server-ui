@@ -1,0 +1,55 @@
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Lora:ital,wght@0,400;0,500;1,400&family=Caveat:wght@500;600&display=swap");
+
+@import "tailwindcss";
+
+/*
+  Design tokens for the Recipe Recommender persona shell.
+  Palette, spine-tab colors, and typography are all derived directly from
+  the reference photos (warm wood + parchment cookbook aesthetic) rather
+  than generic defaults -- see the Phase Recipe Recommender devlog's
+  Frontend > Context section for the full design brief this was built
+  against.
+*/
+@theme {
+  /* Wood surroundings (outside the book) */
+  --color-wood-dark: #2e1f16;
+  --color-wood-mid: #4a3323;
+  --color-wood-light: #6b4a33;
+
+  /* Book pages */
+  --color-parchment: #f1e6c8;
+  --color-parchment-dark: #e4d4a8;
+  --color-parchment-shadow: #c9b788;
+
+  /* Ink / text on parchment */
+  --color-ink: #2b1d14;
+  --color-ink-soft: #5c4a38;
+
+  /* Primary accent (buttons, active states, chef's-special red) */
+  --color-accent: #7a2331;
+  --color-accent-dark: #5c1a24;
+  --color-accent-light: #a8455a;
+
+  /* Chat bubbles */
+  --color-bubble-user: #2b2724;
+  --color-bubble-ai: #f1e6c8;
+
+  /* Spine tab colors -- one per persona sub-resource, matching the
+     reference photos' color-coded tabs */
+  --color-tab-chat: #a85c42;
+  --color-tab-pantry: #6b7a4f;
+  --color-tab-favorites: #9c5a5a;
+  --color-tab-options: #5c6b73;
+
+  /* Typography */
+  --font-display: "Playfair Display", serif;
+  --font-body: "Lora", serif;
+  --font-hand: "Caveat", cursive;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-wood-dark);
+  font-family: var(--font-body);
+  color: var(--color-ink);
+}
